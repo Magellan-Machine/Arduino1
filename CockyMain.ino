@@ -1,3 +1,5 @@
+#include <Servo.h>
+
 /*
  * Magellan Machine 
  * Cocky Coconut Main Arduino Code
@@ -7,6 +9,8 @@
  */
 
 #define MAX_SENSORS 64
+
+Servo rudderServo, sailServo;
 
 typedef enum { GOT_COMMAND, GOT_DEVICE, READING_VALUE, GOT_NEWLINE, PARSE_ERROR } ParseState;
 
@@ -51,7 +55,8 @@ static void sendGetError( char device, const char *errorMessage );
  */
 // constants won't change. Used here to 
 // set pin numbers:
-const int ledPin =  13;      // the number of the LED pin
+const int ledPin =  13, rudderPin = 3, sailPin = 5, 
+  leftEndStopPin = 4, rightEndStopPin = 6;      // the number of the LED pin
 
 sCommandParseState commandParseState;
 String globalError;
@@ -60,7 +65,11 @@ Sensor sensors[ MAX_SENSORS ];
 Actuator actuators[ MAX_SENSORS ];
 
 sActuator LEDActuator = { 'L', setIO };
+sActuator rudderActuator = { 'R', setServo };
+sActuator sailActuator = { 'S', setServo };
 
+sSensor leftEndStopSensor = { 'L', getIO, NULL };
+sSensor rightEndStopSensor = { 'R', getIO, NULL };
 
  void setup()
  {
@@ -73,8 +82,18 @@ sActuator LEDActuator = { 'L', setIO };
    }
 
   pinMode(ledPin, OUTPUT);      
- 
+  pinMode( rightEndStopPin, INPUT );
+  pinMode( leftEndStopPin, INPUT );
+  
+  rudderServo.attach( rudderPin );
+  sailServo.attach( sailPin );
+  
   actuators[ 'L' - 65 ] = &LEDActuator;
+  actuators[ 'R' - 65 ] = &rudderActuator;
+  actuators[ 'S' - 65 ] = &sailActuator;
+  
+  sensors[ 'L' - 65 ] = &leftEndStopSensor;
+  sensors[ 'R' - 65 ] = &rightEndStopSensor;
   
   Serial.begin( 115200 );
 
@@ -82,8 +101,6 @@ sActuator LEDActuator = { 'L', setIO };
   while (!Serial)
     ; // wait for serial port to connect. Needed for Leonardo only
  
-   Serial.println( "Hej!" );
-   
   // ready to receive a new command
   commandParseState.state = GOT_NEWLINE;
 }
@@ -103,6 +120,49 @@ const char *setIO( char name, const char *value )
     return "No such IO";
 }
 
+const char *getIO( char name, char *resultBuffer )
+{
+  int pinNumber, value;
+  
+  switch( name )
+  {
+    case 'L':
+      pinNumber = leftEndStopPin;
+      break;
+      
+    case 'R':
+      pinNumber = rightEndStopPin;
+      break;
+  }
+  
+  sprintf( resultBuffer, "%c", digitalRead( pinNumber ) ? '0' : '1' );
+  
+  return NULL;
+}
+
+const char *setServo( char name, const char *value )
+{
+  int angle = atoi( value );
+  const char *error = NULL;
+  
+  switch( name )
+  {
+    case 'R':
+      rudderServo.write( angle );
+      break;
+      
+    case 'S':
+      sailServo.write( angle );
+      break;
+
+    default:
+      error = "Invalid servo specivied";
+      break;
+  }
+  
+  return error;
+}
+
 void loop()
 {
   int i;
@@ -114,10 +174,10 @@ void loop()
      Sensor sensor;
 
      sensor = sensors[i];
-     if( sensor != NULL )
+     if( sensor != NULL && (sensor->poll != NULL) )
        sensor->poll( sensor->name );
    }
-  delay( 1000 );
+  serialEvent();
  }
 
 void setGlobalError( String message )
@@ -214,7 +274,7 @@ static void sendGetError( char device, const char *errorMessage )
 
 void serialEvent()
 {
-   Serial.println( "serialEvent!" );
+   // Serial.println( "serialEvent!" );
 
   while( Serial.available() )
   {
